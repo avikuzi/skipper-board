@@ -12,6 +12,9 @@
   --caution: #a86a00;
   --nogo: #c0262d;
   --pending-bg: #e1e8ee;
+  --go-bg: #e3f3ea;
+  --caution-bg: #fbf0d9;
+  --nogo-bg: #fbe3e3;
 
   --font-display: 'Secular One', 'Assistant', 'Arial Hebrew', sans-serif;
   --font-body: 'Assistant', 'Arial Hebrew', 'Segoe UI', sans-serif;
@@ -33,6 +36,9 @@
     --caution: #ff6b5c;
     --nogo: #ff6b5c;
     --pending-bg: #241210;
+    --go-bg: #140a09;
+    --caution-bg: #2a120e;
+    --nogo-bg: #3d1510;
     color-scheme: dark;
   }
 }
@@ -48,6 +54,9 @@
   --caution: #ff6b5c;
   --nogo: #ff6b5c;
   --pending-bg: #241210;
+  --go-bg: #140a09;
+  --caution-bg: #2a120e;
+  --nogo-bg: #3d1510;
   color-scheme: dark;
 }
 
@@ -236,3 +245,53 @@ select:focus-visible, input:focus-visible, button:focus-visible {
 @media (prefers-reduced-motion: reduce) {
   * { transition: none !important; animation: none !important; }
 }
+
+.card-wide { grid-column: 1 / -1; }
+
+.readout.rated { border-width: 2px; }
+.rated-go { border-color: var(--go); }
+.rated-caution { border-color: var(--caution); }
+.rated-nogo { border-color: var(--nogo); background: var(--nogo-bg); }
+.status-go { background: var(--go-bg); }
+.status-caution { background: var(--caution-bg); }
+.status-nogo { background: var(--nogo-bg); }
+
+.error { color: var(--nogo); font-weight: 600; }
+.linkish {
+  font: inherit;
+  color: inherit;
+  background: none;
+  border: 0;
+  padding: 0;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.hourly { overflow-x: auto; border: 1px solid var(--line); border-radius: 10px; }
+.hourly table { border-collapse: collapse; width: max-content; min-width: 100%; }
+.hourly th, .hourly td { padding: 6px 10px; text-align: center; border-bottom: 1px solid var(--line); }
+.hourly tr:last-child th, .hourly tr:last-child td { border-bottom: 0; }
+.hourly th[scope='row'] {
+  position: sticky;
+  inset-inline-start: 0;
+  background: var(--surface);
+  text-align: start;
+  font-weight: 600;
+  color: var(--muted);
+  white-space: nowrap;
+}
+.hourly thead th { font-weight: 600; color: var(--muted); }
+.cell-caution { background: var(--caution-bg); color: var(--caution); font-weight: 600; }
+.cell-nogo { background: var(--nogo-bg); color: var(--nogo); font-weight: 600; }
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+.windy { position: relative; aspect-ratio: 4 / 3; max-width: 100%; border-radius: 10px; overflow: hidden; border: 1px solid var(--line); }
+.windy iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; }

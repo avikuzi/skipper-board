@@ -3,6 +3,8 @@ import { MARINAS, findMarina } from './data/marinas.js'
 import { CHECKLIST_SECTIONS } from './data/checklists.js'
 import { sunTimes, formatTime } from './lib/sun.js'
 import { useStoredState } from './lib/storage.js'
+import { useWeather } from './lib/useWeather.js'
+import { compassPoint, rateHour, worst } from './lib/weather.js'
 
 const DEFAULT_SETTINGS = {
   marina: 'herzliya',
@@ -38,6 +40,7 @@ export default function App() {
   const [settings, setSettings] = useStoredState('skipper-board.settings', DEFAULT_SETTINGS)
   const marina = findMarina(settings.marina)
   const now = useNow()
+  const weather = useWeather(marina)
   const update = (patch) => setSettings((s) => ({ ...s, ...patch }))
 
   useEffect(() => {
@@ -98,53 +101,207 @@ export default function App() {
       </header>
 
       <main className="grid">
-        <GoNoGoCard settings={settings} />
+        <GoNoGoCard settings={settings} weather={weather} />
         <DaylightCard marina={marina} now={now} />
         <ChecklistCard />
         <AlertsCard />
         <ThresholdsCard settings={settings} update={update} />
+        <WindyCard marina={marina} />
       </main>
 
       <footer className="muted foot">
-        ההגדרות נשמרות במכשיר הזה בלבד. בכל מקרה של ספק, ההחלטה היא של הסקיפר.
+        תחזית: Open-Meteo ו-Windy. ההגדרות נשמרות במכשיר הזה בלבד. התחזית היא כלי עזר, וההחלטה היא של הסקיפר.
       </footer>
     </div>
   )
 }
 
-function GoNoGoCard({ settings }) {
-  const rows = [
-    { label: 'רוח', unit: 'kn', limit: settings.maxWind },
-    { label: 'משבים', unit: 'kn', limit: settings.maxGust },
-    { label: 'גובה גל', unit: 'm', limit: settings.maxWave },
-    { label: 'מחזור גל', unit: 's' },
-    { label: 'ברומטר', unit: 'hPa' },
-    { label: 'ראות', unit: 'km' },
-  ]
+const STATUS_TEXT = { go: 'GO · אפשר לצאת', caution: 'זהירות', nogo: 'NO-GO · לא לצאת' }
+
+function GoNoGoCard({ settings, weather }) {
+  const { status, data, reload } = weather
+  const limits = settings
+  const now = data?.now
+  const ratingsNow = now ? rateHour(now, limits) : {}
+  const ahead = data ? data.hours.map((h) => ({ ...h, rating: rateHour(h, limits) })) : []
+  const overall = data ? worst(ahead.flatMap((h) => Object.values(h.rating))) : null
+  const trend = data?.pressureTrend
+
+  const rows = now
+    ? [
+        { label: 'רוח', value: fmt(now.wind, 0), unit: 'kn', extra: dirLabel(now.windDir), limit: limits.maxWind, rating: ratingsNow.wind },
+        { label: 'משבים', value: fmt(now.gust, 0), unit: 'kn', limit: limits.maxGust, rating: ratingsNow.gust },
+        { label: 'גובה גל', value: fmt(now.wave, 1), unit: 'm', extra: dirLabel(now.waveDir), limit: limits.maxWave, rating: ratingsNow.wave },
+        { label: 'מחזור גל', value: fmt(now.wavePeriod, 0), unit: 's' },
+        { label: 'ברומטר', value: fmt(now.pressure, 0), unit: 'hPa', extra: trendLabel(trend) },
+        { label: 'ראות', value: fmt(now.visibility == null ? null : now.visibility / 1000, 0), unit: 'km' },
+        { label: 'טמפ׳ מים', value: fmt(now.seaTemp, 0), unit: '°C' },
+      ]
+    : []
+
+  let badge = <span className="status status-pending">טוען תחזית…</span>
+  if (overall) badge = <span className={`status status-${overall}`}>{STATUS_TEXT[overall]}</span>
+  else if (status === 'error') badge = <span className="status status-pending">אין תחזית</span>
+
   return (
     <section className="card card-hero" aria-labelledby="gonogo-title">
       <div className="card-head">
         <h2 id="gonogo-title">החלטת יציאה</h2>
-        <span className="status status-pending">ממתין לתחזית</span>
+        {badge}
       </div>
-      <p className="muted">
-        התחזית מתחברת בשלב הבא (Open-Meteo ו-Windy). עד אז לא מוצגים מספרים, כדי שלא תסתמך על נתון שאינו אמיתי.
-      </p>
-      <dl className="readouts">
-        {rows.map((r) => (
-          <div key={r.label} className="readout">
-            <dt>{r.label}</dt>
-            <dd>
-              <span className="num">—</span> <span className="unit">{r.unit}</span>
-            </dd>
-            {r.limit !== undefined && (
-              <span className="limit">
-                סף <span className="num">{r.limit}</span>
-              </span>
-            )}
-          </div>
-        ))}
-      </dl>
+      {overall && (
+        <p className="muted small">
+          לפי הספים שלך, על פני 12 השעות הקרובות. {data.fetchedAt && `עודכן ${formatTime(data.fetchedAt)}`}
+        </p>
+      )}
+      {status === 'error' && (
+        <p className="error">
+          לא הצלחתי למשוך תחזית מ-Open-Meteo. בדוק חיבור לאינטרנט ו
+          <button type="button" className="linkish" id="weather-retry" onClick={reload}>
+            נסה שוב
+          </button>
+          .
+        </p>
+      )}
+      {now && (
+        <dl className="readouts">
+          {rows.map((r) => (
+            <div key={r.label} className={`readout ${r.rating ? `rated rated-${r.rating}` : ''}`}>
+              <dt>{r.label}</dt>
+              <dd>
+                <span className="num">{r.value}</span> <span className="unit">{r.unit}</span>
+              </dd>
+              {(r.extra || r.limit !== undefined) && (
+                <span className="limit">
+                  {r.extra}
+                  {r.extra && r.limit !== undefined && ' · '}
+                  {r.limit !== undefined && (
+                    <>
+                      סף <span className="num">{r.limit}</span>
+                    </>
+                  )}
+                </span>
+              )}
+            </div>
+          ))}
+        </dl>
+      )}
+      {ahead.length > 1 && <HourlyStrip hours={ahead} />}
+    </section>
+  )
+}
+
+function HourlyStrip({ hours }) {
+  return (
+    <div className="hourly" role="region" aria-label="תחזית לפי שעה" tabIndex={0}>
+      <table>
+        <thead>
+          <tr>
+            <th scope="row">שעה</th>
+            {hours.map((h) => (
+              <th key={h.time} scope="col" className="num">
+                {h.time.slice(11, 16)}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <th scope="row">רוח kn</th>
+            {hours.map((h) => (
+              <td key={h.time} className={`num cell-${h.rating.wind ?? 'none'}`}>
+                {fmt(h.wind, 0)}
+              </td>
+            ))}
+          </tr>
+          <tr>
+            <th scope="row">משבים kn</th>
+            {hours.map((h) => (
+              <td key={h.time} className={`num cell-${h.rating.gust ?? 'none'}`}>
+                {fmt(h.gust, 0)}
+              </td>
+            ))}
+          </tr>
+          <tr>
+            <th scope="row">כיוון</th>
+            {hours.map((h) => (
+              <td key={h.time} className="num">
+                <WindArrow deg={h.windDir} />
+              </td>
+            ))}
+          </tr>
+          <tr>
+            <th scope="row">גל m</th>
+            {hours.map((h) => (
+              <td key={h.time} className={`num cell-${h.rating.wave ?? 'none'}`}>
+                {fmt(h.wave, 1)}
+              </td>
+            ))}
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  )
+}
+
+// Compass point the wind comes from, with degrees on hover.
+function WindArrow({ deg }) {
+  if (deg == null) return '—'
+  return <span title={`${Math.round(deg)}°`}>{compassPoint(deg)}</span>
+}
+
+const fmt = (v, digits) => (v == null || Number.isNaN(v) ? '—' : Number(v).toFixed(digits))
+const dirLabel = (deg) =>
+  deg == null ? '' : <span className="num">{`${compassPoint(deg)} ${Math.round(deg)}°`}</span>
+function trendLabel(t) {
+  if (t == null) return ''
+  if (t <= -3) return `יורד מהר ${t.toFixed(1)}`
+  if (t < -0.5) return 'יורד'
+  if (t > 0.5) return 'עולה'
+  return 'יציב'
+}
+
+function WindyCard({ marina }) {
+  const [overlay, setOverlay] = useState('wind')
+  const src =
+    'https://embed.windy.com/embed2.html?' +
+    new URLSearchParams({
+      lat: marina.lat.toFixed(3),
+      lon: marina.lon.toFixed(3),
+      detailLat: marina.lat.toFixed(3),
+      detailLon: marina.lon.toFixed(3),
+      zoom: '9',
+      level: 'surface',
+      overlay,
+      product: overlay === 'waves' ? 'ecmwfWaves' : 'ecmwf',
+      menu: '',
+      message: 'true',
+      marker: 'true',
+      calendar: 'now',
+      type: 'map',
+      location: 'coordinates',
+      metricWind: 'kt',
+      metricTemp: '°C',
+    })
+  return (
+    <section className="card card-wide" aria-labelledby="windy-title">
+      <div className="card-head">
+        <h2 id="windy-title">מפת Windy</h2>
+        <div className="segmented" role="group" aria-label="שכבת מפה">
+          {[
+            ['wind', 'רוח'],
+            ['waves', 'גלים'],
+            ['gust', 'משבים'],
+          ].map(([id, label]) => (
+            <button key={id} type="button" id={`windy-${id}`} aria-pressed={overlay === id} onClick={() => setOverlay(id)}>
+              {label}
+            </button>
+          ))}
+        </div>
+      </div>
+      <div className="windy">
+        <iframe title={`Windy ${marina.name}`} src={src} loading="lazy" />
+      </div>
     </section>
   )
 }
